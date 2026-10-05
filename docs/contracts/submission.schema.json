@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Coldline Task 4.4 public answer contract. Three answers about the one supplied handling note the supplied redactor handles wrongly: which note it is, whether the redactor missed marked PII (false_negative) or removed text that is not PII (false_positive), and which entry in the limitations section of docs/security/redactor.md describes that pattern. The public check validates this shape and that each value is one the supplied material names; the protected answer check compares the values after the submission on the platform. There is no self-attestation field, no pass boolean, and no recording URL. The id lists repeat tests/fixtures/pii/notes.yaml and docs/security/redactor.md; a contract test keeps them aligned.",
+  "title": "Coldline Task 4.4 answers",
+  "description": "The mishandled note, the kind of error, and the documented limitation behind it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answers"],
+  "properties": {
+    "answers": {
+      "description": "The only top-level answer mapping accepted by the public verifier.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limitation_note", "limitation_type", "documented_limitation"],
+      "properties": {
+        "limitation_note": {
+          "description": "The id of the one supplied note in tests/fixtures/pii/notes.yaml whose redacted text does not match the PII values its fixture marks.",
+          "enum": ["N-01", "N-02", "N-03", "N-04", "N-05", "N-06", "N-07"]
+        },
+        "limitation_type": {
+          "description": "false_negative when the redactor left marked PII in place; false_positive when it removed text the fixture does not mark as PII.",
+          "enum": ["false_negative", "false_positive"]
+        },
+        "documented_limitation": {
+          "description": "The id of the entry in the limitations section of docs/security/redactor.md that describes the pattern behind that note.",
+          "enum": ["RL-01", "RL-02", "RL-03", "RL-04", "RL-05", "RL-06", "RL-07"]
+        }
+      }
+    }
+  }
+}

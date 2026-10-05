@@ -1,0 +1,24 @@
+# Coldline - Task 4.4
+# File: submission-sample.yaml
+# Component: Fictional completed answer sheet
+# Purpose: Show the accepted shape.
+# Interacts With: docs/contracts/submission.schema.json
+# Sprint/Task: Sprint 4 - Project 4 / Task 4.4
+# Concepts: Answer-sheet shape
+# Tools: YAML
+
+# Complete submission.yaml from the evidence sources named beside each answer.
+# Keep the supplied keys; replace the empty strings using each field's stated values.
+# Empty values and placeholder text fail verification.
+# Use submission-sample.yaml for format only; do not copy its fictional values.
+# Do not include secrets, personal data, or local absolute paths.
+# This fictional sample is not a result to submit; an exact copy is rejected. Its values
+# are the first entry of each list (the first note in tests/fixtures/pii/notes.yaml, the
+# first value the schema's limitation_type enum lists, the first row of the limitations
+# table in docs/security/redactor.md) and show the shape only: they are not a reading of
+# the redaction report.
+
+answers:
+  limitation_note: "N-01"
+  limitation_type: "false_negative"
+  documented_limitation: "RL-01"

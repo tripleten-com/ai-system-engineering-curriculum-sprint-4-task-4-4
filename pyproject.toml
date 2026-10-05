@@ -1,0 +1,345 @@
+# Coldline - Task 4.4
+# File: pyproject.toml
+# Component: Python project contract
+# Purpose: Define one installable project, pinned tools, tests, and Poe commands.
+# Interacts With: src packages, tests, uv.lock
+# Sprint/Task: Sprint 4 - Project 4 / Task 4.4
+# Concepts: Single-project reproducibility, PII redaction, deterministic assessment
+# Tools: uv, Hatchling, Poe, Ruff, mypy, pytest, jsonschema
+
+[project]
+name = "coldline-task-2-1"
+version = "0.1.0"
+description = "Coldline Sprint 4 AI security, guardrails, and governance project"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic==1.17.1",
+  "asyncpg==0.31.0",
+  "boto3==1.42.5",
+  "opentelemetry-api==1.44.0",
+  "opentelemetry-exporter-otlp==1.44.0",
+  "opentelemetry-instrumentation-redis==0.65b0",
+  "opentelemetry-sdk==1.44.0",
+  "prometheus-client==0.26.0",
+  "pydantic==2.13.4",
+  "pydantic-settings==2.15.0",
+  "redis==5.3.1",
+  "sqlalchemy==2.0.44",
+]
+
+[dependency-groups]
+api = [
+  # Task 4.2: the supplied TokenVerifier checks RS256 signatures with PyJWT, which needs
+  # cryptography for RSA. PyJWT was already in the lock (redis depends on it); the pin
+  # makes the API's own dependency explicit.
+  "cryptography==49.0.0",
+  "fastapi==0.141.1",
+  "opentelemetry-instrumentation-fastapi==0.65b0",
+  "pyjwt==2.13.0",
+  "pyyaml==6.0.3",
+  "uvicorn==0.52.4",
+]
+worker = [
+  # Task 4.3: the supplied output guardrail validates the provider's answer against
+  # schemas/exception-summary.schema.json inside the worker, so the validator ships in
+  # the worker image. The same pin was already in the dev group. Task 4.4's redactor is
+  # standard-library regular expressions and adds nothing here.
+  "jsonschema==4.26.0",
+]
+dev = [
+  "httpx==0.28.1",
+  "jsonschema==4.26.0",
+  "locust>=2.31",
+  "mypy==2.3.1",
+  "poethepoet==0.48.0",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "pyyaml==6.0.3",
+  "ruff==0.16.3",
+]
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api", "src/worker", "src/domain", "src/ports", "src/adapters", "src/common"]
+
+[tool.uv]
+default-groups = ["api", "worker", "dev"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --import-mode=importlib"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = [
+  "runtime: requires the running Docker Compose stack",
+  "assessed: checks student work this Task assesses, so a fresh starter is expected to fail it",
+  "submission_boundary: asserts a student submission stays inside this Task's editable paths",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "D"]
+ignore = ["D203", "D213"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = [
+  "src",
+  "infra/issuer",
+  "infra/scripts",
+  "tests/security",
+  "tests/contract/authoring.py",
+  "tests/contract/runtime_adapters.py",
+  "tests/contract/retrieval_runtime.py",
+  "tests/contract/submission_validation.py",
+  "tests/contract/threat_model.py",
+  "tests/contract/slo_alert.py",
+  "tests/contract/reliability_gate.py",
+  "tests/contract/runbook_contract.py",
+  "tests/contract/fidelity_check.py",
+  "tests/smoke/readiness.py",
+  "tests/e2e/scenario.py",
+  "tests/e2e/baseline.py",
+  "tests/golden.py",
+  "tests/doubles",
+  "tests/benchmark",
+  "tests/regression.py",
+  "tests/diagnostics",
+  "tests/failure",
+]
+
+[[tool.mypy.overrides]]
+# These runtime libraries do not publish complete typing metadata.
+# Typed boundary wrappers keep their use inside adapters and configuration modules.
+module = ["asyncpg", "boto3", "botocore", "botocore.*", "jsonschema", "yaml"]
+ignore_missing_imports = true
+
+[tool.poe.tasks]
+format = "ruff format ."
+format-check = "ruff format --check ."
+lint = "ruff check ."
+typecheck = "mypy"
+unit = "pytest tests/unit"
+contract = "pytest tests/contract -m 'not runtime and not assessed'"
+runtime-contract = "pytest tests/contract -m runtime"
+queue-contract = "pytest tests/contract/test_runtime_adapters.py -m runtime"
+# Task 3.4's own automated check: the deployed alert rule's bound, firing, and resolution.
+slo-contract = "pytest tests/contract/test_slo_alert.py -m runtime"
+# Task 3.5's own automated check: the wired reliability-gate job's static shape, plus a
+# live proof that it actually rejects its own Task's known starting-broken value.
+gate-contract = "pytest tests/contract/test_reliability_gate.py -m runtime"
+# Task 3.6's automated check, inherited unchanged over the supplied, settled runbook and
+# fidelity record: it must pass as shipped, and a failure here means the checkpoint, not
+# the student's work, needs attention. Static, needs no stack; `poe verify` runs it.
+runbook-contract = "pytest tests/contract/test_runbook_contract.py tests/contract/test_fidelity_check.py"
+fidelity-check = "pytest tests/contract/test_fidelity_check.py"
+smoke = "pytest tests/smoke -m runtime"
+# Task 4.1: the end-to-end workflow retrieves a procedure for every summary, so the corpus must
+# be ingested first. Ingest is idempotent; running it here keeps `poe e2e` correct on its own
+# (for example straight after `poe start`), not only inside `poe verify`. `e2e-tests` is the
+# bare pytest run: it forwards extra arguments (`poe e2e-tests -k <name>`), and checks after a
+# restart use it so a corpus lost across the restart is not silently re-ingested.
+e2e-tests = "pytest tests/e2e -m runtime"
+e2e = ["ingest", "e2e-tests"]
+telemetry-repair = "pytest tests/contract/test_telemetry_repair.py -m runtime"
+retrieval-runtime = "pytest tests/contract/test_retrieval_runtime.py -m runtime"
+# Alembic diagnostics. The initializer already brings the schema to head on
+# every start, so these are for inspecting and stepping that state by hand.
+migrate = "docker compose --profile observability --profile localstack exec -T api alembic upgrade head"
+migrate-down = "docker compose --profile observability --profile localstack exec -T api alembic downgrade -1"
+migrate-current = "docker compose --profile observability --profile localstack exec -T api alembic current"
+# The experiment harness. One command per arm, one retained report per
+# capture, so the baseline evidence survives an experiment run: see
+# docs/contracts/benchmark-report.schema.json for the retained report contract.
+# `compare` re-measures nothing - it reads those two reports and applies the
+# published adoption rule from config/adoption-policy.yaml.
+benchmark-baseline = "python -m tests.benchmark.run --arm baseline"
+benchmark-experiment = "python -m tests.benchmark.run --arm experiment"
+compare = "python -m tests.benchmark.compare"
+# Re-measures both arms and prints the drift from the retained reports. It
+# writes nothing and grades nothing; a recorded decision keeps the evidence it
+# was graded against.
+benchmark-reproduce = "python -m tests.benchmark.reproduce"
+# The retained-report validation, which assesses nothing and needs no
+# container: a missing or self-inconsistent report must fail validation rather
+# than become a decision.
+report-contract = "pytest tests/contract/test_benchmark_reports.py"
+# The intermediate stage inspector, kept as Part 3 evidence for the defense.
+diagnose = "python -m tests.diagnostics.inspect"
+authorization-checkpoint = "pytest tests/contract/test_authorization_checkpoint.py -m runtime"
+# Task 4.4: tests/student/test_redaction.py is yours; the carried Task 4.3 guardrail and
+# audit tests and the settled Task 4.2 access tests beside it still run. Your tests run
+# the worker in-process from src/ and need no stack; the carried audit tests verify tokens
+# against the key set at the configured jwks_url, so start the stack first.
+# `student-tests` is a sequence: `student-guard` reads your file without running it, and
+# only when it has nothing to report does `student-tests-run` (the bare pytest run)
+# collect it, so a file the guard rejects is never imported by this command either. A
+# sequence forwards no arguments; to select tests, call the bare run yourself
+# (`poe student-tests-run -k <name>`), as `e2e-tests` is to `e2e`. Inside `poe verify`
+# this step runs before `redaction-tests-contract`, which then runs the same file itself,
+# as written and under the two mutations, behind the same guard.
+student-tests-run = "pytest tests/student"
+student-tests = ["student-guard", "student-tests-run"]
+test = ["unit", "contract"]
+preflight = "python infra/scripts/preflight.py"
+start = "docker compose --profile observability --profile localstack up --build --wait"
+ready = "python -m tests.smoke.readiness"
+ingest = "docker compose --profile observability --profile localstack exec -T api python -m api.ingest"
+baseline = "python -m tests.e2e.baseline"
+# Task 4.4's Step 1 tool: one supplied out-of-range reading through the running stack, with
+# a fresh identity each run, the emulator response you choose (`--response
+# valid|malformed|manipulated|pii-echo`; `valid` is the default) and, with `--note <id>`,
+# one of the supplied handling notes from tests/fixtures/pii/notes.yaml in place of the
+# reading's own. It prints the exception id (what `pii-scan` takes), the finished state,
+# and the trace ids, and reads the status URL with the `dispatcher-valid` token: that read
+# is a summary read in the audit trail.
+scenario = "python -m tests.e2e.scenario"
+# Task 4.4's own tools. `pii-scan <exception_id>` searches the worker logs (the worker
+# container's lines naming the exception), the model request (the text the emulator
+# recorded when it received it, read inside the worker container), the audit records
+# (every record's details) and the stored summary for the marked values of the run's
+# supplied note and response, prints what it found where, and exits non-zero on a finding.
+# `redaction-report` prints every supplied note's original text, redacted text and marked
+# values, and names no note as right or wrong; it needs no stack. `model-request
+# <exception_id>` prints the recorded request text on its own. `audit-trail
+# <exception_id>` prints every audit record of one exception in order, inside the api
+# container. `integrity-record` and `integrity-check` are the first and last steps of
+# `poe verify`: the first hashes your three files and every trusted file the checks rely
+# on into a snapshot outside the repository, the last recomputes them and fails, naming
+# the file, if anything changed while the run was in progress. `student-guard` parses your
+# test file without running it and applies six flat rules: it imports only `import
+# pytest`, the annotations future, a short list of typing names (`Any`, `Annotated`,
+# `Literal`, `Optional`, `Union`, `cast`, `TYPE_CHECKING`, `Final`) and
+# `InteractionHarness`; uses none of the listed environment names (`__file__`, `sys`,
+# `importlib`, `getattr`, `open`, `Path`, any dunder, ...) anywhere and takes neither
+# `.format` nor `.format_map` from anything; uses pytest only for fixtures, the `asyncio`
+# and `parametrize` marks, `param` and `raises`; gives no function a parameter named after
+# a pytest built-in fixture (`request`, `monkeypatch`, `tmp_path`, ...: rename it, for
+# example to `resp`); every test asserts over a value obtained from the pipeline helper
+# or the redactor; and no Python builtin name (`AssertionError`, `print`, `len`, ...) is
+# bound anywhere in the file. It runs right after the snapshot, before anything executes
+# your file, it is the first step of `student-tests`, and the assessed checks refuse to run
+# a file it rejects. `worker-binding` is the static half of the worker-binding row on its
+# own: the worker read without running it (one import of `redact` and of
+# `validate_summary`, no rebinding, every use a call, every `redact` call directly inside
+# `process`, and no spelled path to the test runner, frame access included); the assessed
+# row then also runs the worker in-process, with no stack,
+# and checks that every answer reaches `validate_summary` (as returned, or redacted as
+# supplied) and that the stored outcome follows its verdict. `redaction-mutation` runs
+# your file once as written, recording which note and response each test ran the worker
+# with and which tests called the redactor, then reruns it under the two supplied
+# mutations (the `redact` calls before the provider call removed; the `redact` calls after
+# it removed) and reports which of your tests still pass. `redaction-contract` runs the
+# assessed rows that read the running stack; `redaction-tests-contract` runs the assessed
+# rows about your worker's bindings and your tests. Both go through
+# `tests/security/assessed_run.py`, which runs the module under pytest with a junit report
+# and then, outside that process, requires every registered assessed case to have
+# executed and passed. `token-check`, `auth-checks` and `auth-config` are Task 4.2's tools
+# over the settled config/auth.yaml, kept for diagnosis.
+pii-scan = "python -m tests.security.pii_scan"
+redaction-report = "python -m tests.security.redaction_report"
+model-request = "docker compose --profile observability --profile localstack exec -T worker python -m worker.model_request"
+audit-trail = "docker compose --profile observability --profile localstack exec -T api python -m api.audit_trail"
+integrity-record = "python -m tests.security.integrity record"
+integrity-check = "python -m tests.security.integrity check"
+student-guard = "python -m tests.security.student_guard"
+worker-binding = "python -m tests.security.worker_binding"
+redaction-mutation = "python -m tests.security.redaction_mutation"
+redaction-contract = "python -m tests.security.assessed_run tests/contract/test_redaction_contract.py"
+redaction-tests-contract = "python -m tests.security.assessed_run tests/contract/test_redaction_tests.py"
+token-check = "python -m tests.security.token_check"
+auth-checks = "python -m tests.security.auth_checks"
+auth-config = "python -m tests.security.auth_config"
+# `answers` is the answer sheet's format only: the three answers are present, each one of
+# its allowed values (a supplied note id, `false_negative` or `false_positive`, a
+# limitation id from docs/security/redactor.md), and the sheet is not a copy of the
+# sample. It judges none of the values: the protected answer check does that after the
+# submission on the platform. It is the first step of the public CI job. `submission` is
+# the same module in full: the format plus the permitted-files boundary (the diff from the
+# merge base touches only src/worker/use_cases.py, submission.yaml, and
+# tests/student/test_redaction.py).
+answers = "python -m tests.contract.submission_validation --format-only"
+submission = "python -m tests.contract.submission_validation"
+structure = "python -m tests.contract.authoring"
+compose-config = "docker compose --profile observability --profile localstack config --quiet"
+# Project 3's own failure exercises, unchanged and still runnable; not part of this Task.
+worker-stop = "docker compose --profile observability --profile localstack stop worker"
+worker-start = "docker compose --profile observability --profile localstack start worker"
+inject-failure = "python -m tests.failure.force_dlq_arrival"
+redrive = "python -m tests.failure.redrive_and_verify"
+trigger-alert-load = "python -m tests.failure.trigger_alert_load"
+verify-alert-recovery = "python -m tests.failure.verify_alert_recovery"
+dev-failure-lab = "python -m tests.failure.dev_failure_lab"
+# Order matters here. `integrity-record` and `integrity-check` bracket the run: the files
+# every step judged must be the files the run finished with. `student-guard` and
+# `worker-binding` run next, before `unit` and before any step executes your test file or
+# imports your worker, so a test that inspects its environment, or a worker that rebinds
+# a supplied name, is named before it runs anywhere. `redaction-contract` runs right after
+# `smoke`, before `e2e` and `student-tests`: on a worker without the redaction calls the
+# inherited end-to-end readers and your own tests may fail too, and the assessed rows must
+# be the step that reports it. `student-tests` runs your file as written, then
+# `redaction-tests-contract` judges it under the two mutations, then the answer format and
+# the permitted-files boundary.
+verify = [
+  "integrity-record",
+  "student-guard",
+  "worker-binding",
+  "unit",
+  "start",
+  "ready",
+  "ingest",
+  "smoke",
+  "redaction-contract",
+  "e2e",
+  "queue-contract",
+  "slo-contract",
+  "gate-contract",
+  "runbook-contract",
+  "student-tests",
+  "redaction-tests-contract",
+  "answers",
+  "submission",
+  "integrity-check",
+]
+author-verify = [
+  "format-check",
+  "lint",
+  "typecheck",
+  "unit",
+  "contract",
+  "structure",
+  "compose-config",
+]
+dogfood-verify = [
+  "author-verify",
+  "ready",
+  "ingest",
+  "runtime-contract",
+  "smoke",
+  "e2e",
+  "scenario",
+  "baseline",
+  "restart",
+  "ready",
+  "e2e-tests",
+  "reset",
+]
+restart = "docker compose --profile observability --profile localstack restart api worker"
+# Compose's `up` (what `poe start` runs) only recreates a container when the
+# container's own configuration changes (image, environment, build args, and
+# so on); it does not track bind-mounted file content, so editing
+# `infra/observability/alerts.yml` and running `poe start` again never makes
+# Prometheus re-read it. This restarts just the Prometheus container so it
+# reloads its rule file.
+reload-alerts = "docker compose --profile observability --profile localstack restart prometheus"
+reset = "docker compose --profile observability --profile localstack down --volumes --remove-orphans"
+stop = "docker compose --profile observability --profile localstack down --remove-orphans"
+load-test = "locust -f loadtest/locustfile.py --headless --users 2 --spawn-rate 2 --run-time 30s --host http://localhost:${COLDLINE_API_HOST_PORT:-8000}"
+reset-baseline = { shell = "docker compose --profile observability --profile localstack exec -T postgres psql -U coldline -d coldline -c \"TRUNCATE exceptions;\" && docker compose --profile observability --profile localstack exec -T redis redis-cli FLUSHDB && docker compose --profile observability --profile localstack restart worker" }
